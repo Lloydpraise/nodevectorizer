@@ -1,79 +1,76 @@
 import express from 'express';
-import cors from 'cors';
-import { pipeline, env, RawImage } from '@xenova/transformers';
-import sharp from 'sharp';
+import puppeteer from 'puppeteer';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '15mb' }));
+const PORT = process.env.PORT || 3000;
 
-// 1. Memory Optimization Config
-env.allowLocalModels = false;
-sharp.cache(false); 
+// Increase limit for Base64 strings
+app.use(express.json({ limit: '50mb' }));
 
-let aiExtractor = null;
-let isProcessing = false;
+let browser;
+let page;
 
-// Helper: 70% Center Crop (Server-side replacement for Canvas)
-async function getProcessedImageBuffer(inputSource) {
-    const input = inputSource.includes('base64,') 
-        ? Buffer.from(inputSource.split(',')[1], 'base64') 
-        : inputSource;
+async function initBrowser() {
+    console.log("🛠️ Starting Browser initialization...");
+    try {
+        browser = await puppeteer.launch({
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--single-process' // Helps with memory on Railway
+            ],
+            headless: "new"
+        });
 
-    const metadata = await sharp(input).metadata();
-    const cropW = Math.round(metadata.width * 0.70);
-    const cropH = Math.round(metadata.height * 0.70);
-    const left = Math.round((metadata.width - cropW) / 2);
-    const top = Math.round((metadata.height - cropH) / 2);
-
-    // Convert to PNG buffer so RawImage can read it reliably
-    return await sharp(input)
-        .extract({ left, top, width: cropW, height: cropH })
-        .resize(224, 224)
-        .png() 
-        .toBuffer();
+        page = await browser.newPage();
+        const filePath = `file://${path.join(__dirname, 'logic.html')}`;
+        await page.goto(filePath);
+        
+        console.log("✅ Browser & AI Logic Ready for Requests");
+    } catch (e) {
+        console.error("❌ FAILED TO START BROWSER:", e);
+    }
 }
 
+// Start browser immediately
+initBrowser();
+
+// CHANGE: Route must match your Edge Function (/vectorize)
 app.post('/vectorize', async (req, res) => {
-    // Prevent OOM by only allowing one image at a time
-    if (isProcessing) {
-        return res.status(429).json({ error: "Server busy, try again in a moment." });
-    }
+    const { image_base64, image_url } = req.body;
+    const source = image_url || image_base64;
 
-    isProcessing = true;
+    console.log("📩 Request received. Processing image...");
+
+    if (!source) return res.status(400).json({ error: "No image source" });
+
     try {
-        const { image_url, image_base64 } = req.body;
-        const source = image_base64 || image_url;
-        if (!source) throw new Error("No image source provided");
-
-        // Lazy load the model (Quantized for 1GB limit)
-        if (!aiExtractor) {
-            console.log("Loading CLIP Model (Quantized)...");
-            aiExtractor = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32', { 
-                quantized: true 
-            });
+        if (!page) {
+            console.log("⚠️ Page not ready, re-initializing...");
+            await initBrowser();
         }
 
-        // --- THE FIX ---
-        // Convert the Buffer to a RawImage object that CLIP can handle
-        const imageBuffer = await getProcessedImageBuffer(source);
-        const rawImage = await RawImage.read(imageBuffer);
-        
-        // Generate Embedding
-        const output = await aiExtractor(rawImage);
-        const embedding = Array.from(output.data);
+        // Run the function inside the browser
+        const embedding = await page.evaluate(async (input) => {
+            return await window.getEmbedding(input);
+        }, source);
 
+        if (embedding.error) throw new Error(embedding.error);
+
+        console.log("🎯 Vectorization successful.");
         res.json({ embedding });
 
-    } catch (err) {
-        console.error("Vectorize Error:", err.message);
-        res.status(500).json({ error: err.message });
-    } finally {
-        isProcessing = false;
-        // Trigger manual cleanup if started with --expose-gc
-        if (global.gc) global.gc();
+    } catch (error) {
+        console.error("💥 Execution Error:", error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 
-const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => console.log(`🚀 Node Vectorizer listening on port ${PORT}`));
+// Health check for Railway
+app.get('/', (req, res) => res.send('Vectorizer is Alive'));
+
+app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Server active on port ${PORT}`));
