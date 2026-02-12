@@ -101,7 +101,23 @@ process.on('uncaughtException', (error) => {
     process.exit(1);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// 5. GRACEFUL SHUTDOWN
+let server;
+process.on('SIGTERM', () => {
+    console.log('📍 [SHUTDOWN] SIGTERM received, closing gracefully...');
+    if (server) {
+        server.close(() => {
+            console.log('✅ [SHUTDOWN] Server closed');
+            process.exit(0);
+        });
+        setTimeout(() => {
+            console.error('❌ [SHUTDOWN] Force exit after 10s');
+            process.exit(1);
+        }, 10000);
+    }
+});
+
+server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 [SYSTEM] Server listening on ${PORT}`);
     console.log("✅ [SYSTEM] HF Token loaded successfully");
 });
