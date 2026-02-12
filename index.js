@@ -24,7 +24,7 @@ app.get('/', (req, res) => {
 app.get('/test-hf', async (req, res) => {
     console.log("🧪 [TEST] Pinging Hugging Face with text input...");
     try {
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32", {
+        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/text-to-image", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
@@ -70,7 +70,7 @@ app.post('/vectorize', async (req, res) => {
             body = Buffer.from(base64Data, 'base64');
         }
 
-        const hfRes = await fetch("https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32", {
+        const hfRes = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/feature-extraction", {
             method: "POST",
             headers: headers,
             body: body,
