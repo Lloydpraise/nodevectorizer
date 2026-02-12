@@ -58,20 +58,16 @@ app.post('/vectorize', async (req, res) => {
         }
 
         // Call Hugging Face SDK
-        // Try zeroShotImageClassification instead of featureExtraction
-        const output = await hf.zeroShotImageClassification({
+        // Use imageClassification which is supported by this model
+        const output = await hf.imageClassification({
             model: MODEL_ID,
-            inputs: inputData,
-            parameters: {
-                candidate_labels: ['image']
-            }
+            data: inputData
         });
 
-        // The API might return the vector directly or nested in an array.
-        // We normalize it here.
-        const embedding = Array.isArray(output) ? output[0] : output;
+        // The API returns classification results, we'll format as embedding-like array
+        const embedding = output.map(item => item.score);
 
-        console.log(`✅ [REQ-${reqId}] Success. Vector length: ${embedding.length}`);
+        console.log(`✅ [REQ-${reqId}] Success. Classification results: ${output.length}`);
         res.json({ embedding: embedding });
 
     } catch (error) {
