@@ -20,23 +20,32 @@ app.get('/', (req, res) => {
     res.status(200).send('Proxy is Online');
 });
 
-// 2. THE TEST ENDPOINT (Simplified - text input only)
+// 2. THE TEST ENDPOINT - Accept image URL as query param
 app.get('/test-hf', async (req, res) => {
-    console.log("🧪 [TEST] Pinging Hugging Face with text input...");
+    const imageUrl = req.query.image_url;
+    
+    if (!imageUrl) {
+        return res.status(400).json({ 
+            error: "Provide image_url as query param",
+            example: "/test-hf?image_url=https://example.com/image.jpg"
+        });
+    }
+
+    console.log("🧪 [TEST] Pinging Hugging Face with image URL:", imageUrl);
     try {
-        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/text-to-image", {
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ inputs: "test product photo" }),
+            body: JSON.stringify({ inputs: imageUrl }),
             timeout: 30000
         });
 
         const text = await response.text();
         console.log("📩 [TEST] HF Response Status:", response.status);
-        console.log("📩 [TEST] HF Response Body:", text.substring(0, 200));
+        console.log("📩 [TEST] HF Response Body:", text.substring(0, 300));
         
         res.status(response.ok ? 200 : response.status)
            .json({ 
