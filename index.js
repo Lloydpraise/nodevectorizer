@@ -10,7 +10,7 @@ const HF_TOKEN = process.env.HF_TOKEN;
 const hf = new HfInference(HF_TOKEN);
 
 // The Model ID (We don't need the full URL anymore, just the ID)
-const MODEL_ID = 'google/vit-base-patch16-224-in21k';
+const MODEL_ID = 'microsoft/resnet-50';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -58,17 +58,18 @@ app.post('/vectorize', async (req, res) => {
         }
 
         // Call Hugging Face SDK
-        // Note: We use 'featureExtraction' because 'zeroShotImageClassification' 
-        // requires candidate_labels and returns probabilities, not the embedding vector.
-        const output = await hf.featureExtraction({
+        // Try zeroShotImageClassification instead of featureExtraction
+        const output = await hf.zeroShotImageClassification({
             model: MODEL_ID,
             inputs: inputData,
-            wait_for_model: true // SDK built-in "wait" feature
+            parameters: {
+                candidate_labels: ['image']
+            }
         });
 
         // The API might return the vector directly or nested in an array.
         // We normalize it here.
-        const embedding = Array.isArray(output[0]) ? output[0] : output;
+        const embedding = Array.isArray(output) ? output[0] : output;
 
         console.log(`✅ [REQ-${reqId}] Success. Vector length: ${embedding.length}`);
         res.json({ embedding: embedding });
