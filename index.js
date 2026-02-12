@@ -10,7 +10,7 @@ const HF_TOKEN = process.env.HF_TOKEN;
 const hf = new HfInference(HF_TOKEN);
 
 // The Model ID (We don't need the full URL anymore, just the ID)
-const MODEL_ID = 'facebook/dino-vits16';
+const MODEL_ID = 'google/vit-base-patch16-224-in21k';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
