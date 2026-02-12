@@ -22,18 +22,12 @@ app.get('/', (req, res) => {
 
 // 2. THE TEST ENDPOINT - Accept image URL as query param
 app.get('/test-hf', async (req, res) => {
-    const imageUrl = req.query.image_url;
+    const imageUrl = req.query.image_url || "https://www.kisasacraft.co.ke/cdn/shop/files/IMG_3491.jpg?v=1761125454&width=360";
     
-    if (!imageUrl) {
-        return res.status(400).json({ 
-            error: "Provide image_url as query param",
-            example: "/test-hf?image_url=https://example.com/image.jpg"
-        });
-    }
-
-    console.log("🧪 [TEST] Pinging Hugging Face with image URL:", imageUrl);
+    console.log("🧪 [TEST] Using token:", HF_TOKEN.substring(0, 10) + "...");
+    
     try {
-        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32", {
+        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/feature-extraction", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
@@ -44,15 +38,14 @@ app.get('/test-hf', async (req, res) => {
         });
 
         const text = await response.text();
-        console.log("📩 [TEST] HF Response Status:", response.status);
-        console.log("📩 [TEST] HF Response Body:", text.substring(0, 300));
+        console.log("📍 Response status:", response.status);
+        console.log("📍 Response body:", text.substring(0, 300));
         
-        res.status(response.ok ? 200 : response.status)
-           .json({ 
-               status: response.ok ? "✅ SUCCESS" : "⚠️ FAILED",
-               httpStatus: response.status,
-               preview: text.substring(0, 500)
-           });
+        res.json({ 
+            status: response.status,
+            success: response.ok,
+            body: text 
+        });
     } catch (error) {
         console.error("❌ [TEST] Error:", error.message);
         res.status(500).json({ error: error.message });
