@@ -10,7 +10,7 @@ const HF_TOKEN = process.env.HF_TOKEN;
 const hf = new HfInference(HF_TOKEN);
 
 // The Model ID (We don't need the full URL anymore, just the ID)
-const MODEL_ID = 'microsoft/resnet-50';
+const MODEL_ID = 'facebook/dino-vitb8';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -58,16 +58,17 @@ app.post('/vectorize', async (req, res) => {
         }
 
         // Call Hugging Face SDK
-        // Use imageClassification which is supported by this model
-        const output = await hf.imageClassification({
+        // Using featureExtraction for proper image vectorization
+        const output = await hf.featureExtraction({
             model: MODEL_ID,
-            data: inputData
+            inputs: inputData,
+            wait_for_model: true
         });
 
-        // The API returns classification results, we'll format as embedding-like array
-        const embedding = output.map(item => item.score);
+        // The API returns a vector (embedding)
+        const embedding = Array.isArray(output[0]) ? output[0] : output;
 
-        console.log(`✅ [REQ-${reqId}] Success. Classification results: ${output.length}`);
+        console.log(`✅ [REQ-${reqId}] Success. Vector length: ${embedding.length}`);
         res.json({ embedding: embedding });
 
     } catch (error) {
