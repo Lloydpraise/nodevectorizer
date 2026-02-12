@@ -8,72 +8,59 @@ const HF_TOKEN = process.env.HF_TOKEN;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-console.log("🛠️ [SYSTEM] Booting Direct-Fetch Vectorizer...");
+app.get('/', (req, res) => res.send('Vectorizer Proxy Online'));
 
-// --- 1. HEALTH CHECK ---
-app.get('/', (req, res) => {
-    res.status(200).send('Vectorizer Proxy Online (Direct Fetch Mode)');
-});
-
-// --- 2. THE TEST ENDPOINT ---
 app.get('/test-hf', async (req, res) => {
-    console.log("🧪 [TEST] Pinging Hugging Face via Direct Fetch...");
     try {
         const response = await fetch("https://router.huggingface.co/openai/clip-vit-base-patch32", {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ inputs: "test ping" }),
+            headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ inputs: "test" }),
         });
-
-        const result = await response.json();
-        
-        if (!response.ok) throw new Error(JSON.stringify(result));
-
-        console.log("✅ [TEST] Success! Hugging Face responded.");
-        res.json({ status: "Connected", provider: "Direct HTTP", vector_length: result.length });
+        const text = await response.text();
+        res.send(text); // See the raw response to debug
     } catch (error) {
-        console.error("❌ [TEST] Error:", error.message);
-        res.status(500).json({ status: "Failed", error: error.message });
+        res.status(500).send(error.message);
     }
 });
 
-// --- 3. MAIN VECTORIZER ---
 app.post('/vectorize', async (req, res) => {
     const { image_base64, image_url } = req.body;
     
     try {
-        let imageInput;
+        let body;
+        let headers = { "Authorization": `Bearer ${HF_TOKEN}` };
+
         if (image_url) {
-            const imgRes = await fetch(image_url);
-            imageInput = await imgRes.arrayBuffer(); // Get raw bytes
-        } else if (image_base64) {
+            // For URLs, Hugging Face expects a JSON body
+            headers["Content-Type"] = "application/json";
+            body = JSON.stringify({ inputs: image_url });
+        } else {
+            // For Base64, we send the raw binary data directly
             const base64Data = image_base64.split(',')[1] || image_base64;
-            imageInput = Buffer.from(base64Data, 'base64');
+            body = Buffer.from(base64Data, 'base64');
+            // Do NOT set Content-Type to application/json here
         }
 
-        console.log("🛰️ Sending to Hugging Face Router...");
-        
         const hfRes = await fetch("https://router.huggingface.co/openai/clip-vit-base-patch32", {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": "application/json",
-            },
-            body: imageInput, // Send the image data directly
+            headers: headers,
+            body: body,
         });
 
-        const embedding = await hfRes.json();
+        const responseText = await hfRes.text();
         
-        if (!hfRes.ok) throw new Error(JSON.stringify(embedding));
-
-        res.json({ embedding });
+        try {
+            const data = JSON.parse(responseText);
+            res.json({ embedding: data });
+        } catch (e) {
+            // If it's not JSON, return the raw text so we can see the error
+            console.error("HF Error Raw:", responseText);
+            res.status(hfRes.status).json({ error: responseText });
+        }
     } catch (error) {
-        console.error("💥 Execution Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Proxy active on ${PORT}`));
+app.listen(PORT, '0.0.0.0');
