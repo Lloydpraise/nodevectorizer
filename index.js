@@ -10,7 +10,7 @@ const HF_TOKEN = process.env.HF_TOKEN;
 const hf = new HfInference(HF_TOKEN);
 
 // The Model ID (We don't need the full URL anymore, just the ID)
-const MODEL_ID = 'openai/clip-vit-base-patch32';
+const MODEL_ID = 'openai/clip-vit-large-patch14';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
