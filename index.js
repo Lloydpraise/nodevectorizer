@@ -16,38 +16,39 @@ app.use(express.json({ limit: '50mb' }));
 
 // 1. RAILWAY HEALTH CHECK
 app.get('/', (req, res) => {
-    console.log("💓 [HEALTH] Railway pinged us.");
-    res.status(200).send('Proxy is Online');
+    console.log("💓 [HEALTH] Railway heartbeat received.");
+    res.status(200).send('Vectorizer Proxy Online');
 });
 
-// 2. THE TEST ENDPOINT - Accept image URL as query param
+// 2. THE TEST ENDPOINT - Verifies the Router Connection
 app.get('/test-hf', async (req, res) => {
     const imageUrl = req.query.image_url || "https://www.kisasacraft.co.ke/cdn/shop/files/IMG_3491.jpg?v=1761125454&width=360";
     
-    console.log("🧪 [TEST] Using token:", HF_TOKEN.substring(0, 10) + "...");
+    console.log(`🧪 [TEST] Running connectivity test with image: ${imageUrl.substring(0, 50)}...`);
     
     try {
-        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/feature-extraction", {
+        const response = await fetch("https://router.huggingface.co/hf-inference/models/openai/clip-vit-base-patch32", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({ inputs: imageUrl }),
-            timeout: 30000
         });
 
         const text = await response.text();
-        console.log("📍 Response status:", response.status);
-        console.log("📍 Response body:", text.substring(0, 300));
+        console.log(`📍 [TEST] HF Status: ${response.status}`);
         
-        res.json({ 
-            status: response.status,
-            success: response.ok,
-            body: text 
-        });
+        if (response.ok) {
+            const data = JSON.parse(text);
+            console.log("✅ [TEST] Success! Vector received.");
+            res.json({ status: "Connected", vector_size: data.length, success: true });
+        } else {
+            console.error("❌ [TEST] HF rejected request:", text);
+            res.status(response.status).json({ success: false, error: text });
+        }
     } catch (error) {
-        console.error("❌ [TEST] Error:", error.message);
+        console.error("💥 [TEST] System Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -55,71 +56,77 @@ app.get('/test-hf', async (req, res) => {
 // 3. MAIN VECTORIZER
 app.post('/vectorize', async (req, res) => {
     const { image_base64, image_url } = req.body;
-    
+    const requestId = Math.random().toString(36).substring(7);
+
+    console.log(`📩 [REQ-${requestId}] New vectorization request...`);
+
     if (!image_base64 && !image_url) {
-        return res.status(400).json({ error: "Provide either image_base64 or image_url" });
+        return res.status(400).json({ error: "Provide image_base64 or image_url" });
     }
-    
+
     try {
         let body;
         let headers = { "Authorization": `Bearer ${HF_TOKEN}` };
 
         if (image_url) {
+            console.log(`🌐 [REQ-${requestId}] Source: URL`);
             headers["Content-Type"] = "application/json";
             body = JSON.stringify({ inputs: image_url });
         } else {
+            console.log(`📄 [REQ-${requestId}] Source: Base64`);
             const base64Data = image_base64.split(',')[1] || image_base64;
             body = Buffer.from(base64Data, 'base64');
+            headers["Content-Type"] = "image/jpeg"; 
         }
 
-        const hfRes = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32/feature-extraction", {
+        console.log(`🛰️ [REQ-${requestId}] Forwarding to HF Router...`);
+        
+        const hfRes = await fetch("https://router.huggingface.co/hf-inference/models/openai/clip-vit-base-patch32", {
             method: "POST",
             headers: headers,
             body: body,
-            timeout: 60000
         });
 
         const responseText = await hfRes.text();
-        
-        if (responseText.trim().startsWith('[')) {
-            res.json({ embedding: JSON.parse(responseText) });
+        console.log(`📥 [REQ-${requestId}] HF Response Status: ${hfRes.status}`);
+
+        if (hfRes.ok) {
+            const embedding = JSON.parse(responseText);
+            console.log(`✅ [REQ-${requestId}] Vectorization successful.`);
+            res.json({ embedding });
         } else {
-            console.error("⚠️ [HF ERROR]:", responseText.substring(0, 200));
+            console.error(`⚠️ [REQ-${requestId}] HF Error:`, responseText.substring(0, 200));
             res.status(hfRes.status).json({ error: responseText });
         }
     } catch (error) {
-        console.error("💥 [SYSTEM ERROR]:", error.message);
+        console.error(`💥 [REQ-${requestId}] System Failure:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
 // 4. ERROR HANDLERS
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ [UNHANDLED REJECTION]', reason);
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ [CRITICAL] Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (error) => {
-    console.error('❌ [UNCAUGHT EXCEPTION]', error);
+    console.error('❌ [CRITICAL] Uncaught Exception:', error);
     process.exit(1);
 });
 
 // 5. GRACEFUL SHUTDOWN
 let server;
 process.on('SIGTERM', () => {
-    console.log('📍 [SHUTDOWN] SIGTERM received, closing gracefully...');
+    console.log('📍 [SHUTDOWN] Signal received. Closing connections...');
     if (server) {
         server.close(() => {
-            console.log('✅ [SHUTDOWN] Server closed');
+            console.log('✅ [SHUTDOWN] Cleanup complete.');
             process.exit(0);
         });
-        setTimeout(() => {
-            console.error('❌ [SHUTDOWN] Force exit after 10s');
-            process.exit(1);
-        }, 10000);
     }
 });
 
 server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 [SYSTEM] Server listening on ${PORT}`);
-    console.log("✅ [SYSTEM] HF Token loaded successfully");
+    console.log(`🚀 [SYSTEM] Vectorizer online on port ${PORT}`);
+    console.log(`✅ [SYSTEM] HF_TOKEN length: ${HF_TOKEN.length} chars`);
 });
