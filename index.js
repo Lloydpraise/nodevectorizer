@@ -8,22 +8,35 @@ const HF_TOKEN = process.env.HF_TOKEN;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-app.get('/', (req, res) => res.send('Vectorizer Proxy Online'));
+// 1. RAILWAY HEALTH CHECK (Must return 200 for Railway to keep the app alive)
+app.get('/', (req, res) => {
+    console.log("💓 [HEALTH] Railway pinged us.");
+    res.status(200).send('Proxy is Online');
+});
 
+// 2. THE TEST ENDPOINT (Call this to see the real HF response)
 app.get('/test-hf', async (req, res) => {
+    console.log("🧪 [TEST] Pinging Hugging Face...");
     try {
         const response = await fetch("https://router.huggingface.co/openai/clip-vit-base-patch32", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
+            headers: {
+                "Authorization": `Bearer ${HF_TOKEN}`,
+                "Content-Type": "application/json",
+            },
             body: JSON.stringify({ inputs: "test" }),
         });
+
         const text = await response.text();
-        res.send(text); // See the raw response to debug
+        console.log("📩 [TEST] HF Response:", text);
+        res.status(response.ok ? 200 : 400).send(text);
     } catch (error) {
+        console.error("❌ [TEST] Error:", error.message);
         res.status(500).send(error.message);
     }
 });
 
+// 3. MAIN VECTORIZER
 app.post('/vectorize', async (req, res) => {
     const { image_base64, image_url } = req.body;
     
@@ -32,14 +45,12 @@ app.post('/vectorize', async (req, res) => {
         let headers = { "Authorization": `Bearer ${HF_TOKEN}` };
 
         if (image_url) {
-            // For URLs, Hugging Face expects a JSON body
             headers["Content-Type"] = "application/json";
             body = JSON.stringify({ inputs: image_url });
         } else {
-            // For Base64, we send the raw binary data directly
             const base64Data = image_base64.split(',')[1] || image_base64;
             body = Buffer.from(base64Data, 'base64');
-            // Do NOT set Content-Type to application/json here
+            // Hugging Face detects binary automatically
         }
 
         const hfRes = await fetch("https://router.huggingface.co/openai/clip-vit-base-patch32", {
@@ -50,17 +61,20 @@ app.post('/vectorize', async (req, res) => {
 
         const responseText = await hfRes.text();
         
-        try {
-            const data = JSON.parse(responseText);
-            res.json({ embedding: data });
-        } catch (e) {
-            // If it's not JSON, return the raw text so we can see the error
-            console.error("HF Error Raw:", responseText);
-            res.status(hfRes.status).json({ error: responseText });
+        // Only try to parse if it looks like JSON
+        if (responseText.trim().startsWith('[')) {
+            res.json({ embedding: JSON.parse(responseText) });
+        } else {
+            console.error("⚠️ [HF ERROR]:", responseText);
+            res.status(hfRes.status).send(responseText);
         }
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("💥 [SYSTEM ERROR]:", error.message);
+        res.status(500).send(error.message);
     }
 });
 
-app.listen(PORT, '0.0.0.0');
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 [SYSTEM] Server listening on ${PORT}`);
+    console.log(HF_TOKEN ? "✅ [SYSTEM] Token found" : "❌ [SYSTEM] HF_TOKEN IS MISSING!");
+});
