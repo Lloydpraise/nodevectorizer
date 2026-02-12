@@ -33,7 +33,7 @@ app.get('/test-hf', async (req, res) => {
 
     console.log("🧪 [TEST] Pinging Hugging Face with image URL:", imageUrl);
     try {
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32", {
+        const response = await fetch("https://router.huggingface.co/api/models/openai/clip-vit-base-patch32", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,

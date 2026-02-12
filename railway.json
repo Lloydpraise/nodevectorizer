@@ -1,0 +1,4 @@
+{
+  "builder": "nixpacks",
+  "start": "node index.js"
+}
