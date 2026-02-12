@@ -1,104 +1,104 @@
-import express from 'express';
-import cors from 'cors';
+import express from "express";
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const HF_TOKEN = process.env.HF_TOKEN;
 
-// --- CONFIGURATION ---
-// This specific URL is the only one that works with the new 2026 Router
-const HF_ROUTER_URL = "https://router.huggingface.co/hf-inference/models/openai/clip-vit-base-patch32";
-
-if (!HF_TOKEN) {
-    console.error("❌ [FATAL] HF_TOKEN is missing in Railway Variables!");
-    process.exit(1);
-}
+// ✅ Correct Router endpoint
+const HF_ROUTER_URL = "https://router.huggingface.co/feature_extraction";
+const HF_MODEL = "openai/clip-vit-base-patch32";
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: "50mb" }));
 
-// 1. RAILWAY HEALTH CHECK (Prevents reboots)
-app.get('/', (req, res) => {
-    console.log("💓 [HEALTH] Railway heartbeat received.");
-    res.status(200).send('<h1>Vectorizer Proxy: Online</h1>');
+app.get("/", (req, res) => {
+  res.send("<h1>CLIP Image Vectorizer Proxy (Router)</h1>");
 });
 
-// 2. THE TEST ENDPOINT (Use this to verify HF is awake)
-app.get('/test-hf', async (req, res) => {
-    const testImage = "https://www.kisasacraft.co.ke/cdn/shop/files/IMG_3491.jpg?v=1761125454&width=360";
-    console.log("🧪 [TEST] Pinging HF Router with test image...");
-    
-    try {
-        const response = await fetch(HF_ROUTER_URL, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ inputs: testImage }),
-        });
+// 🧪 Test endpoint
+app.get("/test-hf", async (req, res) => {
+  const testUrl =
+    "https://www.kisasacraft.co.ke/cdn/shop/files/IMG_3491.jpg?v=1761125454&width=360";
 
-        const text = await response.text();
-        console.log(`📍 [TEST] Status: ${response.status}`);
-        
-        if (response.ok) {
-            const data = JSON.parse(text);
-            console.log("✅ [TEST] Success! Model is awake.");
-            res.json({ status: "Connected", success: true, vector_sample: data.slice(0, 5) });
-        } else {
-            console.error("❌ [TEST] HF Error:", text);
-            res.status(response.status).json({ success: false, error: text });
-        }
-    } catch (error) {
-        console.error("💥 [TEST] Crash:", error.message);
-        res.status(500).json({ error: error.message });
+  console.log("🧪 Testing Hugging Face Router…");
+
+  try {
+    const hfRes = await fetch(HF_ROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: HF_MODEL,
+        inputs: {
+          image: testUrl,
+        },
+      }),
+    });
+
+    const text = await hfRes.text();
+    console.log("📡 Status:", hfRes.status);
+    res.status(hfRes.status).send(text);
+  } catch (err) {
+    console.error("💥 Test failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 🚀 Main vectorizer endpoint
+app.post("/vectorize", async (req, res) => {
+  const { image_url, image_base64 } = req.body;
+  const reqId = Math.random().toString(36).slice(2, 8);
+
+  try {
+    let imageInput;
+
+    if (image_url) {
+      console.log(`🌐 [${reqId}] Using image URL`);
+      imageInput = image_url;
+    } else if (image_base64) {
+      console.log(`📦 [${reqId}] Using base64 image`);
+      imageInput = image_base64.includes("base64,")
+        ? image_base64
+        : `data:image/jpeg;base64,${image_base64}`;
+    } else {
+      return res.status(400).json({ error: "No image provided" });
     }
-});
 
-// 3. MAIN VECTORIZER (The one your app calls)
-app.post('/vectorize', async (req, res) => {
-    const { image_base64, image_url } = req.body;
-    const reqId = Math.random().toString(36).substring(7);
+    const hfRes = await fetch(HF_ROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: HF_MODEL,
+        inputs: {
+          image: imageInput,
+        },
+      }),
+    });
 
-    console.log(`📩 [REQ-${reqId}] Vectorizing...`);
+    const text = await hfRes.text();
 
-    try {
-        let body;
-        let headers = { "Authorization": `Bearer ${HF_TOKEN}` };
-
-        if (image_url) {
-            headers["Content-Type"] = "application/json";
-            body = JSON.stringify({ inputs: image_url });
-        } else {
-            // Convert Base64 to raw binary for Hugging Face
-            const base64Data = image_base64.split(',')[1] || image_base64;
-            body = Buffer.from(base64Data, 'base64');
-            headers["Content-Type"] = "image/jpeg";
-        }
-
-        const hfRes = await fetch(HF_ROUTER_URL, {
-            method: "POST",
-            headers: headers,
-            body: body,
-        });
-
-        const responseText = await hfRes.text();
-
-        if (hfRes.ok) {
-            console.log(`✅ [REQ-${reqId}] Vector returned.`);
-            res.json({ embedding: JSON.parse(responseText) });
-        } else {
-            console.error(`⚠️ [REQ-${reqId}] HF Error:`, responseText);
-            res.status(hfRes.status).json({ error: responseText });
-        }
-    } catch (error) {
-        console.error(`💥 [REQ-${reqId}] System Error:`, error.message);
-        res.status(500).json({ error: error.message });
+    if (!hfRes.ok) {
+      console.error(`⚠️ [${reqId}] HF error:`, text);
+      return res.status(hfRes.status).send(text);
     }
+
+    console.log(`✅ [${reqId}] Vector created`);
+    res.json({ embedding: JSON.parse(text) });
+  } catch (err) {
+    console.error(`💥 [${reqId}] Crash:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Start Server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 [SYSTEM] Proxy active on port ${PORT}`);
-    console.log(`🔗 [SYSTEM] Target URL: ${HF_ROUTER_URL}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(
+    `🔑 HF Token: ${HF_TOKEN ? "OK (" + HF_TOKEN.length + " chars)" : "MISSING"}`
+  );
 });
