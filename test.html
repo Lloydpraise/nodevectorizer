@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VVStudios Vectorizer Tester</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; background: #f4f4f5; }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; color: #18181b; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #3f3f46; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 0.5rem; margin-bottom: 1rem; border: 1px solid #d4d4d8; border-radius: 6px; }
+        button { background: #2563eb; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #93c5fd; cursor: wait; }
+        pre { background: #27272a; color: #4ade80; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; min-height: 100px; }
+        .status { margin-bottom: 1rem; padding: 0.5rem; border-radius: 6px; background: #e0f2fe; color: #0369a1; display: none; }
+        
+        /* Preview area */
+        #preview-container { margin-top: 1rem; display: flex; gap: 1rem; align-items: center; }
+        canvas { border: 2px dashed #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🧩 CLIP Edge Function Tester</h2>
+    <div class="status" id="statusBox"></div>
+
+    <label>Option A: Image URL</label>
+    <input type="text" id="urlInput" placeholder="https://example.com/image.jpg" value="https://www.kisasacraft.co.ke/cdn/shop/files/IMG_3491.jpg?v=1761125454&width=360">
+    <button onclick="testUrl()">⚡ Vectorize URL</button>
+
+    <hr style="margin: 2rem 0; border-color: #e4e4e7;">
+
+    <label>Option B: Upload File (Auto-resizes to 224x224)</label>
+    <input type="file" id="fileInput" accept="image/*">
+    <div id="preview-container">
+        <canvas id="canvas" width="224" height="224"></canvas>
+        <span style="font-size: 0.8rem; color: #666;">Preview (224px)</span>
+    </div>
+    <br>
+    <button onclick="testBase64()">⚡ Vectorize Base64</button>
+
+    <h3>Console Output:</h3>
+    <pre id="consoleOutput">Waiting for action...</pre>
+</div>
+
+<script>
+    // ⚠️ REPLACE WITH YOUR ACTUAL SUPABASE FUNCTION URL
+    const FUNCTION_URL = "https://xgtnbxdxbbywvzrttixf.supabase.co/functions/v1/vectorize-image-hf";
+    const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhndG5ieGR4YmJ5d3Z6cnR0aXhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0Nzg5NTAsImV4cCI6MjA3MjA1NDk1MH0.YGk0vFyIJEiSpu5phzV04Mh4lrHBlfYLFtPP_afFtMQ"; 
+
+    const log = (msg) => {
+        const el = document.getElementById('consoleOutput');
+        el.innerText = `[${new Date().toLocaleTimeString()}] ${msg}\n` + el.innerText;
+    };
+
+    const setStatus = (msg) => {
+        const el = document.getElementById('statusBox');
+        el.style.display = 'block';
+        el.innerText = msg;
+    };
+
+    // --- OPTION A: URL TEST ---
+    async function testUrl() {
+        const url = document.getElementById('urlInput').value;
+        log(`🚀 Starting URL Test...`);
+
+        try {
+            const res = await fetch(FUNCTION_URL, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${ANON_KEY}`
+                },
+                body: JSON.stringify({ image_url: url })
+            });
+
+            // ⚠️ DEBUGGING: Get text first to avoid JSON crash
+            const rawText = await res.text();
+            
+            if (!res.ok) {
+                log(`❌ ERROR ${res.status}: ${rawText.substring(0, 100)}`);
+                return;
+            }
+
+            // Only parse if success
+            const data = JSON.parse(rawText);
+            log(`✅ SUCCESS! Vector length: ${data.embedding?.length}`);
+            
+        } catch (e) {
+            log(`💥 CRASH: ${e.message}`);
+        }
+    }
+
+    // --- OPTION B: BASE64 TEST (WITH 224 RESIZE) ---
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        log("📂 File selected. Processing...");
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                // Draw to 224x224 Canvas
+                const canvas = document.getElementById('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Clear and draw (squashing to 224x224 to strictly meet CLIP input pref)
+                ctx.clearRect(0, 0, 224, 224);
+                ctx.drawImage(img, 0, 0, 224, 224);
+                
+                log("🖼️ Image resized to 224x224 on canvas.");
+            }
+            img.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+    });
+
+    async function testBase64() {
+        const canvas = document.getElementById('canvas');
+        // Get Base64 from Canvas (this is already safe/small)
+        const base64 = canvas.toDataURL('image/jpeg', 0.8); 
+        
+        if (base64.length < 1000) return alert("Please select an image first");
+
+        log(`🚀 Starting Base64 Test. Payload size: ~${Math.round(base64.length/1024)}KB`);
+        setStatus("Sending request...");
+
+        try {
+            const res = await fetch(FUNCTION_URL, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${ANON_KEY}`
+                },
+                body: JSON.stringify({ image_base64: base64 })
+            });
+
+            const data = await res.json();
+            
+            if (res.ok) {
+                log(`✅ SUCCESS! Vector received.`);
+                log(`First 5 dims: ${JSON.stringify(data.embedding.slice(0,5))}`);
+                setStatus("Success!");
+            } else {
+                log(`❌ ERROR ${res.status}: ${JSON.stringify(data)}`);
+                setStatus("Error occurred.");
+            }
+        } catch (e) {
+            log(`💥 CRASH: ${e.message}`);
+        }
+    }
+</script>
+
+</body>
+</html>
